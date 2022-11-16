@@ -1829,14 +1829,33 @@ void CCompositor::setWindowFullscreen(CWindow* pWindow, bool on, eFullscreenMode
         return;
     }
 
-    const auto PMONITOR = getMonitorFromID(pWindow->m_iMonitorID);
+    Debug::log(LOG, "Fullscreen request: on %i mode %i", on, mode);
 
-    const auto PWORKSPACE = getWorkspaceByID(pWindow->m_iWorkspaceID);
-
-    if (PWORKSPACE->m_bHasFullscreenWindow && on) {
-        Debug::log(LOG, "Rejecting fullscreen ON on a fullscreen workspace");
+    if ((on && pWindow->m_FullscreenMode == mode) || (!on && pWindow->m_FullscreenMode == FULLSCREEN_NONE)) {
+        // Nothing to do
         return;
     }
+
+    if (on) {
+        if (mode == FULLSCREEN_FULL) {
+            pWindow->m_bWasMaximized = pWindow->m_FullscreenMode == FULLSCREEN_MAXIMIZED; 
+        } else if(mode == FULLSCREEN_MAXIMIZED) {
+            pWindow->m_bWasMaximized = false;
+        }
+    }
+    else {
+        if (mode == FULLSCREEN_FULL && pWindow->m_bWasMaximized) {
+            pWindow->m_bWasMaximized = false;
+            mode = FULLSCREEN_MAXIMIZED;
+            on = true;
+        }
+    }
+
+    pWindow->m_FullscreenMode = on ? mode : FULLSCREEN_NONE;
+
+    Debug::log(LOG, "Executing fullscreen: on %i mode %i", on, mode);
+
+    const auto PMONITOR = getMonitorFromID(pWindow->m_iMonitorID);
 
     g_pLayoutManager->getCurrentLayout()->fullscreenRequestForWindow(pWindow, mode, on);
 

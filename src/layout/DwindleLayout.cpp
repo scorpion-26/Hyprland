@@ -724,21 +724,15 @@ void CHyprDwindleLayout::fullscreenRequestForWindow(CWindow* pWindow, eFullscree
     if (!g_pCompositor->windowValidMapped(pWindow))
         return;
 
-    if (on == pWindow->m_bIsFullscreen || g_pCompositor->isWorkspaceSpecial(pWindow->m_iWorkspaceID))
+    if (/*on == pWindow->m_bIsFullscreen || */g_pCompositor->isWorkspaceSpecial(pWindow->m_iWorkspaceID))
         return; // ignore
 
     const auto PMONITOR   = g_pCompositor->getMonitorFromID(pWindow->m_iMonitorID);
     const auto PWORKSPACE = g_pCompositor->getWorkspaceByID(pWindow->m_iWorkspaceID);
 
-    if (PWORKSPACE->m_bHasFullscreenWindow && on) {
-        // if the window wants to be fullscreen but there already is one,
-        // ignore the request.
-        return;
-    }
-
     // otherwise, accept it.
     pWindow->m_bIsFullscreen           = on;
-    PWORKSPACE->m_bHasFullscreenWindow = !PWORKSPACE->m_bHasFullscreenWindow;
+    PWORKSPACE->m_bHasFullscreenWindow = on;
 
     g_pEventManager->postEvent(SHyprIPCEvent{"fullscreen", std::to_string((int)on)});
 

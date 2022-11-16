@@ -5,8 +5,9 @@
 
 enum eFullscreenMode : uint8_t
 {
-    FULLSCREEN_FULL = 0,
-    FULLSCREEN_MAXIMIZED
+    FULLSCREEN_NONE = 0,
+    FULLSCREEN_FULL,
+    FULLSCREEN_MAXIMIZED,
 };
 
 class CWindow;
