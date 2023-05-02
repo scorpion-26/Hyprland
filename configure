@@ -1,0 +1,13 @@
+#!/bin/sh
+
+# Delete old run
+
+rm -rf build
+
+export CC=clang
+export CXX=clang++
+export CC_LD=lld
+export CXX_LD=lld
+export CFLAGS="-march=native -Ofast -pipe -fomit-frame-pointer"
+export CXXFLAGS="-march=native -Ofast -pipe -fomit-frame-pointer"
+meson setup build -Db_lto=true -Db_lto_mode=thin -Dbuildtype=release
