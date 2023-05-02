@@ -102,6 +102,8 @@ void CSessionLockManager::onNewSessionLock(wlr_session_lock_v1* pWlrLock) {
         },
         pWlrLock, "wlr_session_lock_v1");
 
+    // Unlocking my optimized release hyprland twice results in abandoned session lock, so just behave as normal.
+    // WARNING: DO NOT try to merge this upstream, as this is unsafe (e.g. a malicous actor could crash the session lock, resulting in access to Hyprland)!
     m_sSessionLock.hyprListener_destroy.initCallback(
         &pWlrLock->events.destroy,
         [&](void* owner, void* data) {
@@ -111,9 +113,10 @@ void CSessionLockManager::onNewSessionLock(wlr_session_lock_v1* pWlrLock) {
             m_sSessionLock.hyprListener_newSurface.removeCallback();
             m_sSessionLock.hyprListener_unlock.removeCallback();
 
-            g_pCompositor->m_sSeat.exclusiveClient = nullptr;
+            m_sSessionLock.active = false;
 
-            g_pCompositor->focusSurface(nullptr);
+            g_pCompositor->m_sSeat.exclusiveClient = nullptr;
+            g_pInputManager->refocus();
 
             m_sSessionLock.pWlrLock = nullptr;
 
