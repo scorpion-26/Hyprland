@@ -6,6 +6,7 @@
 #include <sys/utsname.h>
 #include <iomanip>
 #include <sstream>
+#include <ranges>
 
 #if defined(__DragonFly__) || defined(__FreeBSD__) || defined(__NetBSD__) || defined(__OpenBSD__)
 #include <sys/sysctl.h>
@@ -315,6 +316,7 @@ int getWorkspaceIDFromString(const std::string& in, std::string& outName) {
             result = (int)getPlusMinusKeywordResult(in.substr(1), 0);
 
             int           remains = (int)result;
+            int64_t       start   = g_pCompositor->m_pLastMonitor->activeWorkspace;
 
             std::set<int> invalidWSes;
 
@@ -325,6 +327,7 @@ int getWorkspaceIDFromString(const std::string& in, std::string& outName) {
                     invalidWSes.insert(ws->m_iID);
                 }
             }
+
             for (auto& rule : g_pConfigManager->getAllWorkspaceRules()) {
                 const auto PMONITOR = g_pCompositor->getMonitorFromName(rule.monitor);
                 if (!PMONITOR || PMONITOR->ID == g_pCompositor->m_pLastMonitor->ID) {
@@ -335,109 +338,117 @@ int getWorkspaceIDFromString(const std::string& in, std::string& outName) {
                 invalidWSes.insert(rule.workspaceId);
             }
 
-            // Prepare all named workspaces in case when we need them
-            std::vector<int> namedWSes;
+            // a waypoint is a workspace. Step is the required step from the previous workspace to this one.
+            // steps take into account unavailable ws-es
+            //
+            // waypoint    waypoint
+            // | ---------- | --------- |
+            //     step         step
+            struct waypoint {
+                int64_t id   = 0;
+                size_t  step = 0;
+            };
+
+            std::vector<waypoint> waypoints;
+
             for (auto& ws : g_pCompositor->m_vWorkspaces) {
-                if (ws->m_bIsSpecialWorkspace || (ws->m_iMonitorID != g_pCompositor->m_pLastMonitor->ID) || ws->m_iID >= 0)
+                if (ws->m_iMonitorID != g_pCompositor->m_pLastMonitor->ID || invalidWSes.contains(ws->m_iID))
                     continue;
-
-                namedWSes.push_back(ws->m_iID);
-            }
-            std::sort(namedWSes.begin(), namedWSes.end());
-
-            // Just take a blind guess at where we'll probably end up
-            int  predictedWSID = g_pCompositor->m_pLastMonitor->activeWorkspace + remains;
-            int  remainingWSes = 0;
-            char walkDir       = in[1];
-
-            // sanitize. 0 means invalid oob in -
-            predictedWSID = std::max(predictedWSID, 0);
-
-            // Count how many invalidWSes are in between (how bad the prediction was)
-            int  beginID = in[1] == '+' ? g_pCompositor->m_pLastMonitor->activeWorkspace + 1 : predictedWSID;
-            int  endID   = in[1] == '+' ? predictedWSID : g_pCompositor->m_pLastMonitor->activeWorkspace;
-            auto begin   = invalidWSes.upper_bound(beginID - 1); // upper_bound is >, we want >=
-            for (auto it = begin; *it <= endID && it != invalidWSes.end(); it++) {
-                remainingWSes++;
+                waypoints.push_back({ws->m_iID, 0});
             }
 
-            // Handle named workspaces. They are treated like always before other workspaces
-            if (g_pCompositor->m_pLastMonitor->activeWorkspace < 0) {
-                // Behaviour similar to 'm'
-                // Find current
-                int currentItem = -1;
-                for (size_t i = 0; i < namedWSes.size(); i++) {
-                    if (namedWSes[i] == g_pCompositor->m_pLastMonitor->activeWorkspace) {
-                        currentItem = i;
+            std::sort(waypoints.begin(), waypoints.end(), [&](const auto& wp, const auto& wp2) { return wp.id < wp2.id; });
+
+            for (auto it = ++waypoints.begin(); it != waypoints.end(); ++it) {
+                if (std::prev(it)->id < 0 && it->id > 0)
+                    it->step = it->id;
+                else
+                    it->step = it->id - std::prev(it)->id;
+
+                // count the amount of invalid ws-es in between
+                size_t invalid = 0;
+                for (auto setIt = invalidWSes.upper_bound(std::prev(it)->id - 1); std::distance(setIt, invalidWSes.lower_bound(it->id + 1)) > 0; ++setIt) {
+                    ++invalid;
+                }
+
+                it->step -= invalid;
+            }
+
+            bool reverse = remains < 0;
+            if (reverse) {
+                std::reverse(waypoints.begin(), waypoints.end());
+                remains = -remains;
+
+                // fix steps by offsetting them by one
+                for (auto it = waypoints.rbegin(); it != waypoints.rend(); ++it) {
+                    if (it == std::prev(waypoints.rend()))
+                        it->step = 0;
+                    else
+                        it->step = std::next(it)->step;
+                }
+            }
+
+            // step through.
+            int resultID = -1;
+            while (resultID == -1) {
+                for (auto it = std::next(std::find_if(waypoints.begin(), waypoints.end(), [&](const auto& wp) { return wp.id == start; })); it != waypoints.end(); ++it) {
+                    if (remains > (int)it->step) {
+                        remains -= it->step;
+                        continue;
+                    }
+
+                    if (remains == (int)it->step) {
+                        resultID = it->id;
                         break;
                     }
+
+                    // last stretch.
+                    const auto PREVIT = std::prev(it);
+                    int64_t    at     = PREVIT->id;
+
+                    for (auto setIt = invalidWSes.upper_bound(std::prev(it)->id - 1); std::distance(setIt, invalidWSes.lower_bound(it->id + 1)) > 0; ++setIt) {
+                        if (*setIt - at >= remains) {
+                            remains -= (*setIt - at);
+                            at = *setIt + 1;
+                            continue;
+                        }
+
+                        // at + remains is our result
+                        resultID = at + (reverse ? -remains : remains);
+                    }
+
+                    if (resultID == -1) {
+                        // no elements in the loop perhaps
+                        resultID = at + (reverse ? -remains : remains);
+                    }
+
+                    break;
                 }
 
-                currentItem += remains;
-                currentItem = std::max(currentItem, 0);
-                if (currentItem >= (int)namedWSes.size()) {
-                    // At the seam between namedWSes and normal WSes. Behave like r+[diff] at imaginary ws 0
-                    int diff      = currentItem - (namedWSes.size() - 1);
-                    predictedWSID = diff;
-                    int  beginID  = 1;
-                    int  endID    = predictedWSID;
-                    auto begin    = invalidWSes.upper_bound(beginID - 1); // upper_bound is >, we want >=
-                    for (auto it = begin; *it <= endID && it != invalidWSes.end(); it++) {
-                        remainingWSes++;
-                    }
-                    walkDir = '+';
-                } else {
-                    // We found our final ws.
-                    remainingWSes = 0;
-                    predictedWSID = namedWSes[currentItem];
+                if (resultID != -1)
+                    break;
+
+                // if named, this is a fail. if end is 1, this is a fail as well. (no workspace to go to)
+                if (std::prev(waypoints.end())->id <= 1) {
+                    resultID = INT_MAX;
+                    break;
                 }
+
+                // otherwise, clamp on 1.
+                resultID = std::clamp(std::prev(waypoints.end())->id + (reverse ? -remains : remains), (int64_t)1, (int64_t)INT_MAX);
             }
 
-            // Go in the search direction for remainingWSes
-            // The performance impact is directly proportional to the number of open and bound workspaces
-            int finalWSID = predictedWSID;
-            if (walkDir == '-') {
-                int beginID = finalWSID;
-                int curID   = finalWSID;
-                while (--curID > 0 && remainingWSes > 0) {
-                    if (invalidWSes.find(curID) == invalidWSes.end()) {
-                        remainingWSes--;
-                    }
-                    finalWSID = curID;
-                }
-                if (finalWSID <= 0 || invalidWSes.find(finalWSID) != invalidWSes.end()) {
-                    if (namedWSes.size()) {
-                        // Go to the named workspaces
-                        // Need remainingWSes more
-                        int namedWSIdx = namedWSes.size() - remainingWSes;
-                        // Sanitze
-                        namedWSIdx = std::clamp(namedWSIdx, 0, (int)namedWSes.size() - 1);
-                        finalWSID  = namedWSes[namedWSIdx];
-                    } else {
-                        // Couldn't find valid workspace in negative direction, search last first one back up positive direction
-                        walkDir = '+';
-                        // We know, that everything less than beginID is invalid, so don't bother with that
-                        finalWSID     = beginID;
-                        remainingWSes = 1;
-                    }
-                }
-            }
-            if (walkDir == '+') {
-                int curID = finalWSID;
-                while (++curID < INT32_MAX && remainingWSes > 0) {
-                    if (invalidWSes.find(curID) == invalidWSes.end()) {
-                        remainingWSes--;
-                    }
-                    finalWSID = curID;
-                }
+            if (resultID == -1) {
+                Debug::log(ERR, "BUG THIS: resultID in r -1");
+                return INT_MAX;
             }
 
-            result                = finalWSID;
-            const auto PWORKSPACE = g_pCompositor->getWorkspaceByID(result);
-            if (PWORKSPACE)
-                outName = g_pCompositor->getWorkspaceByID(result)->m_szName;
+            if (const auto PWORKSPACE = g_pCompositor->getWorkspaceByID(resultID); PWORKSPACE)
+                outName = PWORKSPACE->m_szName;
             else
-                outName = std::to_string(finalWSID);
+                outName = std::to_string(resultID);
+
+            return resultID;
 
         } else if ((in[0] == 'm' || in[0] == 'e') && (in[1] == '-' || in[1] == '+') && isNumber(in.substr(2))) {
             bool onAllMonitors = in[0] == 'e';
