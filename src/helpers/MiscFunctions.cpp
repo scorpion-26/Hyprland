@@ -405,7 +405,7 @@ int getWorkspaceIDFromString(const std::string& in, std::string& outName) {
                 const auto PREVIT = std::prev(it);
                 int64_t    at     = PREVIT->id;
 
-                for (auto setIt = invalidWSes.upper_bound(std::prev(it)->id - 1); std::distance(setIt, invalidWSes.lower_bound(it->id + 1)) > 0; ++setIt) {
+                for (auto setIt = invalidWSes.upper_bound(at - 1); std::distance(setIt, invalidWSes.lower_bound(it->id + 1)) > 0; ++setIt) {
                     if (*setIt - at >= remains) {
                         remains -= (*setIt - at);
                         at = *setIt + 1;
@@ -425,11 +425,34 @@ int getWorkspaceIDFromString(const std::string& in, std::string& outName) {
             }
 
             // if named, this is a fail. if end is 1, this is a fail as well. (no workspace to go to)
-            if (std::prev(waypoints.end())->id <= 1) {
-                resultID = INT_MAX;
+            if (std::prev(waypoints.end())->id <= 1 && (reverse || std::prev(waypoints.end())->id < 0)) {
+                if (g_pCompositor->m_pLastMonitor->activeWorkspace == std::prev(waypoints.end())->id)
+                    resultID = INT_MAX;
+                else
+                    resultID = std::prev(waypoints.end())->id;
             } else {
-                // otherwise, clamp on 1.
-                resultID = std::clamp(std::prev(waypoints.end())->id + (reverse ? -remains : remains), (int64_t)1, (int64_t)INT_MAX);
+                // we still need to check validity for invalid ws-es
+                const auto PREVIT = std::prev(waypoints.end());
+                int64_t    at     = PREVIT->id;
+
+                for (auto setIt = invalidWSes.upper_bound(at - 1); setIt != invalidWSes.end(); ++setIt) {
+                    if (*setIt - at >= remains) {
+                        remains -= (*setIt - at);
+                        at = *setIt + 1;
+                        continue;
+                    }
+
+                    // at + remains is our result
+                    resultID = at + (reverse ? -remains : remains);
+                }
+
+                if (resultID == -1) {
+                    // at + remains is our result
+                    resultID = at + (reverse ? -remains : remains);
+                }
+
+                // clamp to 1
+                resultID = std::clamp(resultID, 1, INT_MAX);
             }
 
             if (resultID == -1) {
