@@ -390,50 +390,44 @@ int getWorkspaceIDFromString(const std::string& in, std::string& outName) {
 
             // step through.
             int resultID = -1;
-            while (resultID == -1) {
-                for (auto it = std::next(std::find_if(waypoints.begin(), waypoints.end(), [&](const auto& wp) { return wp.id == start; })); it != waypoints.end(); ++it) {
-                    if (remains > (int)it->step) {
-                        remains -= it->step;
+            for (auto it = std::next(std::find_if(waypoints.begin(), waypoints.end(), [&](const auto& wp) { return wp.id == start; })); it != waypoints.end(); ++it) {
+                if (remains > (int)it->step) {
+                    remains -= it->step;
+                    continue;
+                }
+
+                if (remains == (int)it->step) {
+                    resultID = it->id;
+                    break;
+                }
+
+                // last stretch.
+                const auto PREVIT = std::prev(it);
+                int64_t    at     = PREVIT->id;
+
+                for (auto setIt = invalidWSes.upper_bound(std::prev(it)->id - 1); std::distance(setIt, invalidWSes.lower_bound(it->id + 1)) > 0; ++setIt) {
+                    if (*setIt - at >= remains) {
+                        remains -= (*setIt - at);
+                        at = *setIt + 1;
                         continue;
                     }
 
-                    if (remains == (int)it->step) {
-                        resultID = it->id;
-                        break;
-                    }
-
-                    // last stretch.
-                    const auto PREVIT = std::prev(it);
-                    int64_t    at     = PREVIT->id;
-
-                    for (auto setIt = invalidWSes.upper_bound(std::prev(it)->id - 1); std::distance(setIt, invalidWSes.lower_bound(it->id + 1)) > 0; ++setIt) {
-                        if (*setIt - at >= remains) {
-                            remains -= (*setIt - at);
-                            at = *setIt + 1;
-                            continue;
-                        }
-
-                        // at + remains is our result
-                        resultID = at + (reverse ? -remains : remains);
-                    }
-
-                    if (resultID == -1) {
-                        // no elements in the loop perhaps
-                        resultID = at + (reverse ? -remains : remains);
-                    }
-
-                    break;
+                    // at + remains is our result
+                    resultID = at + (reverse ? -remains : remains);
                 }
 
-                if (resultID != -1)
-                    break;
-
-                // if named, this is a fail. if end is 1, this is a fail as well. (no workspace to go to)
-                if (std::prev(waypoints.end())->id <= 1) {
-                    resultID = INT_MAX;
-                    break;
+                if (resultID == -1) {
+                    // no elements in the loop perhaps
+                    resultID = at + (reverse ? -remains : remains);
                 }
 
+                break;
+            }
+
+            // if named, this is a fail. if end is 1, this is a fail as well. (no workspace to go to)
+            if (std::prev(waypoints.end())->id <= 1) {
+                resultID = INT_MAX;
+            } else {
                 // otherwise, clamp on 1.
                 resultID = std::clamp(std::prev(waypoints.end())->id + (reverse ? -remains : remains), (int64_t)1, (int64_t)INT_MAX);
             }
