@@ -2303,6 +2303,8 @@ void CCompositor::setWindowFullscreen(CWindow* pWindow, bool on, eFullscreenMode
     for (auto& w : m_vWindows) {
         if (w->m_iWorkspaceID == PWORKSPACE->m_iID && !w->m_bIsFullscreen && !w->m_bFadingOut && !w->m_bPinned)
             w->m_bCreatedOverFullscreen = false;
+        if (w->m_bIsFloating && mode == FULLSCREEN_MAXIMIZED)
+            w->m_bCreatedOverFullscreen = true;
     }
     updateFullscreenFadeOnWorkspace(PWORKSPACE);
 
