@@ -92,6 +92,32 @@ void Events::listener_newOutput(wl_listener* listener, void* data) {
 
     // ready to process if we have a real monitor
 
+    for (auto& dm : g_pCompositor->m_vDeadMonitors) {
+        if (dm.szName == OUTPUT->name) {
+            Debug::log(LOG, "Recovering from an already destroyed monitor");
+            // Override ID. It won't be used by any other monitor
+            (*PNEWMONITORWRAP)->ID = dm.ID;
+            for (auto& ws : dm.m_vWorkspaces) {
+                // Move all workspaces over/create them
+                CWorkspace* PWORKSPACE = g_pCompositor->getWorkspaceByID(ws.ID);
+                if (!PWORKSPACE) {
+                    PWORKSPACE = g_pCompositor->createNewWorkspace(ws.ID, dm.ID);
+                }
+                g_pCompositor->moveWorkspaceToMonitor(PWORKSPACE, PNEWMONITORWRAP->get());
+                // Sidestep bound monitor rule, since we want this workspace to be *always* on the added monitor
+                PWORKSPACE->m_szName = dm.szName;
+            }
+
+            // Focus the previously active workspace (it must exist, since it will be in SDeadMonitorData::m_vWorkspaces)
+            CWorkspace* PACTIVEWS = g_pCompositor->getWorkspaceByID(dm.activeWorkspace);
+            (*PNEWMONITORWRAP)->changeWorkspace(PACTIVEWS, true);
+
+            // Delete this dead monitor
+            std::erase_if(g_pCompositor->m_vDeadMonitors, [&](SDeadMonitorData& other) { return other.ID == dm.ID; });
+            break;
+        }
+    }
+
     if ((!g_pHyprRenderer->m_pMostHzMonitor || PNEWMONITOR->refreshRate > g_pHyprRenderer->m_pMostHzMonitor->refreshRate) && PNEWMONITOR->m_bEnabled)
         g_pHyprRenderer->m_pMostHzMonitor = PNEWMONITOR;
 
@@ -198,7 +224,19 @@ void Events::listener_monitorDestroy(void* owner, void* data) {
 
     Debug::log(LOG, "Destroy called for monitor {}", pMonitor->output->name);
 
-    pMonitor->onDisconnect(true);
+    // Save important recovery data, in case it connects again
+    SDeadMonitorData DEADMON{};
+    DEADMON.ID              = pMonitor->ID;
+    DEADMON.szName          = pMonitor->szName;
+    DEADMON.activeWorkspace = pMonitor->activeWorkspace;
+    for (auto& ws : g_pCompositor->m_vWorkspaces) {
+        if (ws->m_iMonitorID == pMonitor->ID) {
+            DEADMON.m_vWorkspaces.emplace_back(ws->m_iID, ws->m_szName);
+        }
+    }
+    g_pCompositor->m_vDeadMonitors.push_back(std::move(DEADMON));
+
+    pMonitor->onDisconnect();
 
     pMonitor->output                 = nullptr;
     pMonitor->m_bRenderingInitPassed = false;

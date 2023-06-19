@@ -25,6 +25,19 @@ struct SMonitorRule {
     std::optional<int>  vrr;
 };
 
+// Recovery data for removed monitors
+struct SDeadMonitorData {
+    std::string szName          = "";
+    uint64_t    ID              = -1;
+    int         activeWorkspace = -1;
+
+    struct SDeadMonitorWorkspace {
+        int         ID;
+        std::string szName;
+    };
+    std::vector<SDeadMonitorWorkspace> m_vWorkspaces;
+};
+
 class CMonitor {
   public:
     CMonitor();

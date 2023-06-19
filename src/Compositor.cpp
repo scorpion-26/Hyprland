@@ -1954,6 +1954,10 @@ int CCompositor::getNextAvailableMonitorID(std::string const& name) {
     for (auto const& monitor : m_vRealMonitors) {
         usedIDs.insert(monitor->ID);
     }
+    // Reserve the dead monitors IDs
+    for (auto const& monitor : m_vDeadMonitors) {
+        usedIDs.insert(monitor.ID);
+    }
 
     uint64_t nextID = 0;
     while (usedIDs.count(nextID) > 0) {

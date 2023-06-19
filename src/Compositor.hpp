@@ -92,6 +92,7 @@ class CCompositor {
 
     std::vector<std::shared_ptr<CMonitor>>    m_vMonitors;
     std::vector<std::shared_ptr<CMonitor>>    m_vRealMonitors; // for all monitors, even those turned off
+    std::vector<SDeadMonitorData>             m_vDeadMonitors; // Recovery data for destroyed monitors
     std::vector<std::unique_ptr<CWindow>>     m_vWindows;
     std::vector<std::unique_ptr<SXDGPopup>>   m_vXDGPopups;
     std::vector<std::unique_ptr<CWorkspace>>  m_vWorkspaces;
